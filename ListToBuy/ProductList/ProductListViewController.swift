@@ -7,51 +7,75 @@
 //
 
 import UIKit
+import CoreData
 
-class ProductListViewController: UITableViewController {
+class ProductListViewController: UITableViewController, NSFetchedResultsControllerDelegate {
     
-    let model = ProductListModel()
-    var products: [Product] = []
+    var model: ProductListModel?
+    var frc: NSFetchedResultsController<Product>?
     
+    //MARK: - ViewController Life Cycle
     override func viewDidLoad() {
         super.viewDidLoad()
         
         title = "Мои покупки"
-    }
-    
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        
-        model.retreiveProducts { [weak self] products in
-            self?.products = products
-            self?.tableView.reloadData()
+        model = ProductListModel() { result in
+            switch result {
+            case .succeed(let model):
+                self.createFRCIn(context: model.context)
+                model.refreshProducts()
+                
+            case .failed:
+                break
+            }
         }
     }
     
+    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
+        super.prepare(for: segue, sender: sender)
+        
+        if let frc = frc,
+            let productDetailsViewController = segue.destination as? ProductDetailsViewController,
+            let indexPath = tableView.indexPathForSelectedRow {
+            productDetailsViewController.product = frc.object(at: indexPath)
+        }
+    }
+    
+    // Object creation
+    func createFRCIn(context: NSManagedObjectContext) {
+        let frc =  NSFetchedResultsController(fetchRequest: Product.sortedRequest,
+                                              managedObjectContext: context,
+                                              sectionNameKeyPath: nil,
+                                              cacheName: nil)
+        frc.delegate = self
+        try? frc.performFetch()
+        self.frc = frc
+    }
+    
+    //MARK: - UITableViewDataSource
     override func tableView(_ tableView: UITableView,
                             numberOfRowsInSection section: Int) -> Int {
-        return products.count
+        let section = frc?.sections?[section]
+        return section?.numberOfObjects ?? 0
     }
     
     override func tableView(_ tableView: UITableView,
                             cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "ProductCell",
                                                  for: indexPath)
-        if let productCell = cell as? ProductCell {
-            let product = products[indexPath.row]
+        if let frc = frc,
+            let productCell = cell as? ProductCell {
+            let product = frc.object(at: indexPath)
             productCell.productNameLabel.text = product.name
             productCell.productsAmountLabel.text = "\(product.amount)"
         }
         
         return cell
     }
+
     
-    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
-        super.prepare(for: segue, sender: sender)
-        
-        if let productDetailsViewController = segue.destination as? ProductDetailsViewController,
-            let row = tableView.indexPathForSelectedRow?.row {
-            productDetailsViewController.product = products[row]
-        }
+    //MARK: - NSFetchedResultsControllerDelegate
+    func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
+        tableView.reloadData()
     }
 }
